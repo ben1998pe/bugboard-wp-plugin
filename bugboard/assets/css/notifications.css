@@ -1,0 +1,276 @@
+/* ===== NOTIFICACIONES BUGBOARD ===== */
+
+/* Notificación flotante */
+.bugboard-notice {
+    border-left-color: #0073aa !important;
+    background: #f0f8ff;
+}
+
+.bugboard-notice p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.bugboard-notice a {
+    color: #0073aa;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.bugboard-notice a:hover {
+    text-decoration: underline;
+}
+
+/* ===== WIDGET DEL DASHBOARD ===== */
+
+.bugboard-dashboard-widget {
+    padding: 0;
+}
+
+/* Estadísticas rápidas */
+.bugboard-stats-overview {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 10px;
+    background: #fff;
+    border-radius: 6px;
+    border: 1px solid #e1e5e9;
+}
+
+.stat-number {
+    display: block;
+    font-size: 24px;
+    font-weight: bold;
+    color: #0073aa;
+    line-height: 1;
+}
+
+.stat-label {
+    display: block;
+    font-size: 12px;
+    color: #666;
+    margin-top: 5px;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+/* Lista de tareas recientes */
+.bugboard-recent-tasks {
+    margin-bottom: 20px;
+}
+
+.bugboard-recent-tasks h4 {
+    margin: 0 0 15px 0;
+    font-size: 16px;
+    color: #23282d;
+    border-bottom: 2px solid #0073aa;
+    padding-bottom: 8px;
+}
+
+.bugboard-task-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.bugboard-task-item {
+    padding: 12px;
+    margin-bottom: 8px;
+    background: #fff;
+    border: 1px solid #e1e5e9;
+    border-radius: 6px;
+    border-left: 4px solid #0073aa;
+    transition: all 0.2s ease;
+}
+
+.bugboard-task-item:hover {
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    transform: translateY(-1px);
+}
+
+.bugboard-task-item.priority-alta {
+    border-left-color: #c62828;
+}
+
+.bugboard-task-item.priority-media {
+    border-left-color: #ef6c00;
+}
+
+.bugboard-task-item.priority-baja {
+    border-left-color: #2e7d32;
+}
+
+.task-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.task-info strong {
+    font-size: 14px;
+    color: #23282d;
+    flex: 1;
+    margin-right: 10px;
+}
+
+.task-status {
+    font-size: 11px;
+    color: #666;
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.task-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: #888;
+}
+
+.task-priority {
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+}
+
+.priority-alta .task-priority {
+    background: #ffebee;
+    color: #c62828;
+}
+
+.priority-media .task-priority {
+    background: #fff3e0;
+    color: #ef6c00;
+}
+
+.priority-baja .task-priority {
+    background: #e8f5e8;
+    color: #2e7d32;
+}
+
+.task-date {
+    font-size: 10px;
+    color: #999;
+}
+
+/* Enlaces rápidos */
+.bugboard-quick-links {
+    display: flex;
+    gap: 10px;
+    padding-top: 15px;
+    border-top: 1px solid #e1e5e9;
+}
+
+.bugboard-quick-links .button {
+    flex: 1;
+    text-align: center;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+/* ===== RESPONSIVE ===== */
+
+@media (max-width: 768px) {
+    .bugboard-stats-overview {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+    
+    .stat-number {
+        font-size: 20px;
+    }
+    
+    .stat-label {
+        font-size: 11px;
+    }
+    
+    .bugboard-quick-links {
+        flex-direction: column;
+    }
+    
+    .bugboard-quick-links .button {
+        margin-bottom: 5px;
+    }
+}
+
+/* ===== ANIMACIONES ===== */
+
+@keyframes bugboardFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.bugboard-notice {
+    animation: bugboardFadeIn 0.3s ease-out;
+}
+
+.bugboard-task-item {
+    animation: bugboardFadeIn 0.2s ease-out;
+}
+
+/* ===== ESTADOS ESPECIALES ===== */
+
+.bugboard-task-item.urgent {
+    border-left-color: #f44336;
+    background: #fff5f5;
+}
+
+.bugboard-task-item.overdue {
+    border-left-color: #ff9800;
+    background: #fff8e1;
+}
+
+/* ===== TOOLTIPS ===== */
+
+.bugboard-task-item {
+    position: relative;
+}
+
+.bugboard-task-item:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 1000;
+    margin-bottom: 5px;
+}
+
+.bugboard-task-item:hover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top-color: #333;
+    z-index: 1000;
+    margin-bottom: 1px;
+} 
