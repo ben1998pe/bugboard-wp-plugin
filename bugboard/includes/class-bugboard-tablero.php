@@ -1,6 +1,6 @@
 <?php
 /**
- * Clase para manejar el tablero Kanban de BugBoard
+ * Clase para manejar el tablero Kanban
  */
 
 if (!defined('ABSPATH')) {
@@ -8,420 +8,360 @@ if (!defined('ABSPATH')) {
 }
 
 class BugBoard_Tablero {
-    
+
     /**
      * Constructor
      */
     public function __construct() {
-        error_log('BugBoard: Inicializando clase BugBoard_Tablero');
-        
-        // Registrar hooks AJAX
-        add_action('wp_ajax_bugboard_update_task_status', array($this, 'update_task_status'));
-        add_action('wp_ajax_bugboard_get_tasks', array($this, 'get_tasks'));
-        add_action('wp_ajax_nopriv_bugboard_get_tasks', array($this, 'get_tasks'));
-        
-        error_log('BugBoard: Hooks AJAX registrados');
+        add_action('admin_menu', array($this, 'add_admin_menu'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
     }
-    
+
     /**
-     * Registrar hooks AJAX (método separado para llamar desde el archivo principal)
+     * Añadir menú en el admin
      */
-    public function register_ajax_hooks() {
-        error_log('BugBoard: Registrando hooks AJAX...');
+    public function add_admin_menu() {
+        // Menú principal BugBoard
+        add_menu_page(
+            'BugBoard', // Título de la página
+            'BugBoard', // Título del menú
+            'manage_options', // Capacidad requerida
+            'bugboard', // Slug del menú
+            array($this, 'bugboard_main_page'), // Función callback
+            'dashicons-bug', // Icono
+            30 // Posición en el menú
+        );
         
-        add_action('wp_ajax_bugboard_update_task_status', array($this, 'update_task_status'));
-        add_action('wp_ajax_bugboard_get_tasks', array($this, 'get_tasks'));
-        add_action('wp_ajax_nopriv_bugboard_get_tasks', array($this, 'get_tasks'));
-        
-        // Función de prueba AJAX
-        add_action('wp_ajax_bugboard_test', array($this, 'test_ajax'));
-        add_action('wp_ajax_nopriv_bugboard_test', array($this, 'test_ajax'));
-        
-        // Función para obtener una tarea específica
-        add_action('wp_ajax_bugboard_get_task', array($this, 'get_task'));
-        add_action('wp_ajax_nopriv_bugboard_get_task', array($this, 'get_task'));
-        
-        // Función de prueba para get_task
-        add_action('wp_ajax_bugboard_test_get_task', array($this, 'test_get_task'));
-        add_action('wp_ajax_nopriv_bugboard_test_get_task', array($this, 'test_get_task'));
-        
-        // Función para eliminar una tarea
-        add_action('wp_ajax_bugboard_delete_task', array($this, 'delete_task'));
-        add_action('wp_ajax_nopriv_bugboard_delete_task', array($this, 'delete_task'));
-        
-        error_log('BugBoard: Hooks AJAX registrados correctamente');
+        // Submenú Tablero
+        add_submenu_page(
+            'bugboard', // Parent slug
+            'Tablero', // Título de la página
+            'Tablero', // Título del submenú
+            'manage_options', // Capacidad requerida
+            'bugboard-tablero', // Slug del submenú
+            array($this, 'bugboard_tablero_page') // Función callback
+        );
     }
-    
+
     /**
-     * Función de prueba AJAX
+     * Página principal de BugBoard
      */
-    public function test_ajax() {
-        error_log('BugBoard: test_ajax() llamada');
-        wp_send_json_success(array('message' => 'AJAX funciona correctamente'));
-    }
-    
-    /**
-     * Función de prueba para get_task
-     */
-    public function test_get_task() {
-        error_log('BugBoard: test_get_task() llamada');
-        error_log('BugBoard: POST data: ' . print_r($_POST, true));
-        wp_send_json_success(array('message' => 'get_task hook registrado correctamente'));
-    }
-    
-    /**
-     * Obtener una tarea específica
-     */
-    public function get_task() {
-        try {
-            error_log('BugBoard: get_task() llamada');
-            
-            // Verificar nonce
-            if (!wp_verify_nonce($_POST['nonce'], 'bugboard_nonce')) {
-                wp_send_json_error(array('message' => 'Nonce inválido'));
-                return;
-            }
-            
-            // Obtener ID de la tarea
-            $task_id = intval($_POST['task_id']);
-            if (!$task_id) {
-                wp_send_json_error(array('message' => 'ID de tarea inválido'));
-                return;
-            }
-            
-            // Obtener la tarea
-            $task = get_post($task_id);
-            if (!$task || $task->post_type !== 'bug') {
-                wp_send_json_error(array('message' => 'Tarea no encontrada'));
-                return;
-            }
-            
-            // Obtener metadatos
-            $status = get_post_meta($task_id, '_bugboard_status', true);
-            $priority = get_post_meta($task_id, '_bugboard_priority', true);
-            $assignee = get_post_meta($task_id, '_bugboard_assignee', true);
-            
-            // Valores por defecto si no existen
-            if (empty($status)) $status = 'por-hacer';
-            if (empty($priority)) $priority = 'media';
-            
-            // Obtener información del autor de forma segura
-            $author_name = '';
-            if ($task->post_author) {
-                $author = get_userdata($task->post_author);
-                $author_name = $author ? $author->display_name : 'Usuario desconocido';
-            }
-            
-            // Obtener fecha de forma segura
-            $date = '';
-            if ($task->post_date) {
-                $date = date('d/m/Y', strtotime($task->post_date));
-            }
-            
-            $task_data = array(
-                'id' => $task_id,
-                'title' => $task->post_title,
-                'description' => $task->post_content,
-                'status' => $status,
-                'priority' => $priority,
-                'assignee' => $assignee,
-                'author' => $author_name,
-                'date' => $date
-            );
-            
-            wp_send_json_success($task_data);
-            
-        } catch (Exception $e) {
-            error_log('BugBoard: Error en get_task: ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Error interno: ' . $e->getMessage()));
-        }
-    }
-    
-    /**
-     * Eliminar una tarea
-     */
-    public function delete_task() {
-        try {
-            error_log('BugBoard: delete_task() llamada');
-            
-            // Verificar nonce
-            if (!wp_verify_nonce($_POST['nonce'], 'bugboard_nonce')) {
-                wp_send_json_error(array('message' => 'Nonce inválido'));
-                return;
-            }
-            
-            // Obtener ID de la tarea
-            $task_id = intval($_POST['task_id']);
-            if (!$task_id) {
-                wp_send_json_error(array('message' => 'ID de tarea inválido'));
-                return;
-            }
-            
-            // Verificar que la tarea existe y es del tipo correcto
-            $task = get_post($task_id);
-            if (!$task || $task->post_type !== 'bug') {
-                wp_send_json_error(array('message' => 'Tarea no encontrada'));
-                return;
-            }
-            
-            // Eliminar la tarea
-            $result = wp_delete_post($task_id, true); // true = eliminar permanentemente
-            
-            if ($result) {
-                error_log('BugBoard: Tarea eliminada correctamente');
-                wp_send_json_success(array('message' => 'Tarea eliminada correctamente'));
-            } else {
-                error_log('BugBoard: Error al eliminar tarea');
-                wp_send_json_error(array('message' => 'Error al eliminar la tarea'));
-            }
-            
-        } catch (Exception $e) {
-            error_log('BugBoard: Error en delete_task: ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Error interno: ' . $e->getMessage()));
-        }
-    }
-    
-    /**
-     * Renderizar el tablero Kanban
-     */
-    public function render_tablero() {
+    public function bugboard_main_page() {
         ?>
         <div class="wrap">
-            <h1>Tablero de Tareas</h1>
-            <button id="debug-load-tasks" class="button">Debug: Cargar Tareas</button>
-            <button id="debug-test-ajax" class="button">Debug: Probar AJAX</button>
-            <button id="debug-test-get-task" class="button">Debug: Probar Get Task</button>
-            <div id="debug-info" style="margin: 10px 0; padding: 10px; background: #f0f0f0; border-radius: 4px;"></div>
+            <h1>BugBoard</h1>
+            <p>Bienvenido al plugin BugBoard para gestión de tareas.</p>
             
-            <div class="bugboard-tablero">
-                <div class="bugboard-columns">
-                    <!-- Columna: Por Hacer -->
-                    <div class="bugboard-column" data-status="por-hacer">
-                        <div class="bugboard-column-header">
-                            <h3>Por Hacer</h3>
-                            <span class="task-count">0</span>
-                        </div>
-                        <div class="bugboard-tasks" id="por-hacer-tasks">
-                            <!-- Las tareas se cargarán aquí -->
-                        </div>
-                        <button class="add-task-btn" data-status="por-hacer">+ Añadir Tarea</button>
+            <div class="bugboard-dashboard">
+                <h2>Estadísticas</h2>
+                <?php $this->display_stats(); ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Mostrar estadísticas
+     */
+    private function display_stats() {
+        $stats = BugBoard_Tasks::get_task_stats();
+        $current_user_id = get_current_user_id();
+        $user_stats = $this->get_user_task_stats($current_user_id);
+        $current_user = wp_get_current_user();
+        ?>
+        
+        <!-- Estadísticas Generales -->
+        <div class="bugboard-stats-section">
+            <h3>📊 Estadísticas Generales</h3>
+            <div class="bugboard-stats">
+                <div class="stat-card">
+                    <h3>Por Hacer</h3>
+                    <span class="stat-number"><?php echo $stats['por-hacer']; ?></span>
+                </div>
+                <div class="stat-card">
+                    <h3>En Progreso</h3>
+                    <span class="stat-number"><?php echo $stats['en-progreso']; ?></span>
+                </div>
+                <div class="stat-card">
+                    <h3>En Revisión</h3>
+                    <span class="stat-number"><?php echo $stats['en-revision']; ?></span>
+                </div>
+                <div class="stat-card">
+                    <h3>Completado</h3>
+                    <span class="stat-number"><?php echo $stats['completado']; ?></span>
+                </div>
+                <div class="stat-card total">
+                    <h3>Total</h3>
+                    <span class="stat-number"><?php echo $stats['total']; ?></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Estadísticas del Usuario Actual -->
+        <div class="bugboard-stats-section">
+            <h3>👤 Mis Tareas - <?php echo esc_html($current_user->display_name); ?></h3>
+            <div class="bugboard-user-stats">
+                <div class="user-stat-card">
+                    <div class="stat-icon">📋</div>
+                    <div class="stat-content">
+                        <h4>Total Asignadas</h4>
+                        <span class="stat-number"><?php echo $user_stats['total']; ?></span>
                     </div>
-                    
-                    <!-- Columna: En Progreso -->
-                    <div class="bugboard-column" data-status="en-progreso">
-                        <div class="bugboard-column-header">
-                            <h3>En Progreso</h3>
-                            <span class="task-count">0</span>
-                        </div>
-                        <div class="bugboard-tasks" id="en-progreso-tasks">
-                            <!-- Las tareas se cargarán aquí -->
-                        </div>
-                        <button class="add-task-btn" data-status="en-progreso">+ Añadir Tarea</button>
+                </div>
+                <div class="user-stat-card pending">
+                    <div class="stat-icon">⏳</div>
+                    <div class="stat-content">
+                        <h4>Pendientes</h4>
+                        <span class="stat-number"><?php echo $user_stats['pending']; ?></span>
                     </div>
-                    
-                    <!-- Columna: En Revisión -->
-                    <div class="bugboard-column" data-status="en-revision">
-                        <div class="bugboard-column-header">
-                            <h3>En Revisión</h3>
-                            <span class="task-count">0</span>
-                        </div>
-                        <div class="bugboard-tasks" id="en-revision-tasks">
-                            <!-- Las tareas se cargarán aquí -->
-                        </div>
-                        <button class="add-task-btn" data-status="en-revision">+ Añadir Tarea</button>
+                </div>
+                <div class="user-stat-card in-progress">
+                    <div class="stat-icon">🔄</div>
+                    <div class="stat-content">
+                        <h4>En Progreso</h4>
+                        <span class="stat-number"><?php echo $user_stats['in_progress']; ?></span>
                     </div>
-                    
-                    <!-- Columna: Completado -->
-                    <div class="bugboard-column" data-status="completado">
-                        <div class="bugboard-column-header">
-                            <h3>Completado</h3>
-                            <span class="task-count">0</span>
-                        </div>
-                        <div class="bugboard-tasks" id="completado-tasks">
-                            <!-- Las tareas se cargarán aquí -->
-                        </div>
-                        <button class="add-task-btn" data-status="completado">+ Añadir Tarea</button>
+                </div>
+                <div class="user-stat-card completed">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-content">
+                        <h4>Completadas</h4>
+                        <span class="stat-number"><?php echo $user_stats['completed']; ?></span>
+                    </div>
+                </div>
+                <div class="user-stat-card urgent">
+                    <div class="stat-icon">🚨</div>
+                    <div class="stat-content">
+                        <h4>Urgentes</h4>
+                        <span class="stat-number"><?php echo $user_stats['urgent']; ?></span>
                     </div>
                 </div>
             </div>
             
-            <!-- Modal para añadir/editar tareas -->
-            <div id="task-modal" class="bugboard-modal">
+            <!-- Progreso del usuario -->
+            <?php if ($user_stats['total'] > 0): ?>
+                <div class="user-progress">
+                    <h4>Progreso Personal</h4>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: <?php echo ($user_stats['completed'] / $user_stats['total']) * 100; ?>%"></div>
+                    </div>
+                    <span class="progress-text"><?php echo round(($user_stats['completed'] / $user_stats['total']) * 100); ?>% completado</span>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Página del tablero
+     */
+    public function bugboard_tablero_page() {
+        ?>
+        <div class="wrap">
+            <h1>Tablero Kanban - BugBoard</h1>
+            
+            <div id="debug-info" style="background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; font-family: monospace; font-size: 12px;">
+                <strong>Debug:</strong> Cargando tareas...
+            </div>
+            
+            <div class="bugboard-columns">
+                <div class="bugboard-column" data-status="por-hacer">
+                    <div class="bugboard-column-header">
+                        <h3>Por Hacer</h3>
+                        <span class="task-count">0</span>
+                    </div>
+                    <div class="bugboard-tasks">
+                        <!-- Las tareas se cargarán aquí -->
+                        <div class="empty-column-message" style="display: none;">
+                            <p>No hay tareas pendientes</p>
+                            <small>Arrastra tareas aquí o crea una nueva</small>
+                        </div>
+                    </div>
+                    <button class="add-task-btn" onclick="openTaskModal('por-hacer')">+ Añadir Tarea</button>
+                </div>
+                
+                <div class="bugboard-column" data-status="en-progreso">
+                    <div class="bugboard-column-header">
+                        <h3>En Progreso</h3>
+                        <span class="task-count">0</span>
+                    </div>
+                    <div class="bugboard-tasks">
+                        <!-- Las tareas se cargarán aquí -->
+                        <div class="empty-column-message" style="display: none;">
+                            <p>No hay tareas en progreso</p>
+                            <small>Arrastra tareas aquí o crea una nueva</small>
+                        </div>
+                    </div>
+                    <button class="add-task-btn" onclick="openTaskModal('en-progreso')">+ Añadir Tarea</button>
+                </div>
+                
+                <div class="bugboard-column" data-status="en-revision">
+                    <div class="bugboard-column-header">
+                        <h3>En Revisión</h3>
+                        <span class="task-count">0</span>
+                    </div>
+                    <div class="bugboard-tasks">
+                        <!-- Las tareas se cargarán aquí -->
+                        <div class="empty-column-message" style="display: none;">
+                            <p>No hay tareas en revisión</p>
+                            <small>Arrastra tareas aquí o crea una nueva</small>
+                        </div>
+                    </div>
+                    <button class="add-task-btn" onclick="openTaskModal('en-revision')">+ Añadir Tarea</button>
+                </div>
+                
+                <div class="bugboard-column" data-status="completado">
+                    <div class="bugboard-column-header">
+                        <h3>Completado</h3>
+                        <span class="task-count">0</span>
+                    </div>
+                    <div class="bugboard-tasks">
+                        <!-- Las tareas se cargarán aquí -->
+                        <div class="empty-column-message" style="display: none;">
+                            <p>No hay tareas completadas</p>
+                            <small>Arrastra tareas aquí o crea una nueva</small>
+                        </div>
+                    </div>
+                    <button class="add-task-btn" onclick="openTaskModal('completado')">+ Añadir Tarea</button>
+                </div>
+            </div>
+            
+            <!-- Modal para crear/editar tareas -->
+            <div id="task-modal" class="bugboard-modal" style="display: none;">
                 <div class="bugboard-modal-content">
-                    <span class="bugboard-modal-close">&times;</span>
+                    <span class="bugboard-modal-close" onclick="closeTaskModal()">&times;</span>
                     <h2 id="modal-title">Añadir Nueva Tarea</h2>
+                    
                     <form id="task-form">
                         <input type="hidden" id="task-id" name="task_id" value="">
-                        <input type="hidden" id="task-status" name="task_status" value="">
                         
                         <div class="form-group">
-                            <label for="task-title">Título de la Tarea</label>
-                            <input type="text" id="task-title" name="task_title" required>
+                            <label for="task-title">Título:</label>
+                            <input type="text" id="task-title" name="title" required>
                         </div>
                         
                         <div class="form-group">
-                            <label for="task-description">Descripción</label>
-                            <textarea id="task-description" name="task_description" rows="4"></textarea>
+                            <label for="task-description">Descripción:</label>
+                            <textarea id="task-description" name="description" rows="4"></textarea>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="task-status">Estado:</label>
+                                <select id="task-status" name="status" required>
+                                    <option value="por-hacer">Por Hacer</option>
+                                    <option value="en-progreso">En Progreso</option>
+                                    <option value="en-revision">En Revisión</option>
+                                    <option value="completado">Completado</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="task-priority">Prioridad:</label>
+                                <select id="task-priority" name="priority" required>
+                                    <option value="baja">Baja</option>
+                                    <option value="media" selected>Media</option>
+                                    <option value="alta">Alta</option>
+                                    <option value="critica">Crítica</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="task-assignee">Asignado a:</label>
+                                <select id="task-assignee" name="assignee">
+                                    <option value="">Sin asignar</option>
+                                    <?php
+                                    $users = BugBoard_Tasks::get_available_users();
+                                    foreach ($users as $user) {
+                                        echo '<option value="' . $user['id'] . '">' . esc_html($user['name']) . '</option>';
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="task-due-date">Fecha límite:</label>
+                                <input type="date" id="task-due-date" name="due_date">
+                            </div>
                         </div>
                         
                         <div class="form-group">
-                            <label for="task-priority">Prioridad</label>
-                            <select id="task-priority" name="task_priority">
-                                <option value="baja">Baja</option>
-                                <option value="media">Media</option>
-                                <option value="alta">Alta</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="task-assignee">Asignado a</label>
-                            <select id="task-assignee" name="task_assignee">
-                                <option value="">Sin asignar</option>
-                                <?php
-                                $users = get_users(array('role__in' => array('administrator', 'editor')));
-                                foreach ($users as $user) {
-                                    echo '<option value="' . $user->ID . '">' . $user->display_name . '</option>';
-                                }
-                                ?>
-                            </select>
+                            <label for="task-estimated-hours">Horas estimadas:</label>
+                            <input type="number" id="task-estimated-hours" name="estimated_hours" min="0" step="0.5">
                         </div>
                         
                         <div class="form-actions">
-                            <button type="submit" class="button button-primary">Guardar Tarea</button>
+                            <button type="submit" class="button button-primary">Guardar</button>
                             <button type="button" class="button" onclick="closeTaskModal()">Cancelar</button>
                         </div>
                     </form>
                 </div>
             </div>
         </div>
-        
-        <script>
-        // Variables globales para el tablero
-        var bugboardAjaxUrl = '<?php echo admin_url('admin-ajax.php'); ?>';
-        var bugboardNonce = '<?php echo wp_create_nonce('bugboard_nonce'); ?>';
-        console.log('BugBoard Debug - AJAX URL:', bugboardAjaxUrl);
-        console.log('BugBoard Debug - Nonce:', bugboardNonce);
-        </script>
         <?php
     }
-    
+
     /**
-     * Obtener tareas para el tablero
+     * Obtener estadísticas de tareas del usuario
      */
-    public function get_tasks() {
-        try {
-            // Debug: log de la función
-            error_log('BugBoard: get_tasks() llamada');
-            
-            // Verificar que se recibieron los datos POST
-            if (!isset($_POST['nonce'])) {
-                error_log('BugBoard: No se recibió nonce');
-                wp_send_json_error(array('message' => 'No se recibió nonce'));
-                return;
-            }
-            
-            // Verificar nonce
-            if (!wp_verify_nonce($_POST['nonce'], 'bugboard_nonce')) {
-                error_log('BugBoard: Nonce inválido');
-                wp_send_json_error(array('message' => 'Nonce inválido'));
-                return;
-            }
-            
-            error_log('BugBoard: Nonce válido, procediendo...');
-            
-            // Obtener todas las tareas del tipo 'bug'
-            $tasks = get_posts(array(
-                'post_type' => 'bug',
-                'post_status' => 'publish',
-                'numberposts' => -1
-            ));
-            
-            error_log('BugBoard: Encontradas ' . count($tasks) . ' tareas');
-            
-            $formatted_tasks = array();
-            foreach ($tasks as $task) {
-                $status = get_post_meta($task->ID, '_bugboard_status', true);
-                $priority = get_post_meta($task->ID, '_bugboard_priority', true);
-                $assignee = get_post_meta($task->ID, '_bugboard_assignee', true);
-                
-                // Si no tiene estado asignado, asignar 'por-hacer' por defecto
-                if (empty($status)) {
-                    $status = 'por-hacer';
-                    update_post_meta($task->ID, '_bugboard_status', $status);
-                }
-                
-                // Si no tiene prioridad asignada, asignar 'media' por defecto
-                if (empty($priority)) {
-                    $priority = 'media';
-                    update_post_meta($task->ID, '_bugboard_priority', $priority);
-                }
-                
-                $formatted_tasks[] = array(
-                    'id' => $task->ID,
-                    'title' => $task->post_title,
-                    'description' => $task->post_content,
-                    'status' => $status,
-                    'priority' => $priority,
-                    'assignee' => $assignee,
-                    'author' => get_the_author_meta('display_name', $task->post_author),
-                    'date' => get_the_date('d/m/Y', $task->ID)
-                );
-            }
-            
-            error_log('BugBoard: Enviando ' . count($formatted_tasks) . ' tareas formateadas');
-            wp_send_json_success($formatted_tasks);
-            
-        } catch (Exception $e) {
-            error_log('BugBoard: Error en get_tasks: ' . $e->getMessage());
-            wp_send_json_error(array('message' => 'Error interno: ' . $e->getMessage()));
-        }
-    }
-    
-    /**
-     * Actualizar estado de una tarea
-     */
-    public function update_task_status() {
-        check_ajax_referer('bugboard_nonce', 'nonce');
+    private function get_user_task_stats($user_id) {
+        global $wpdb;
         
-        $task_id = intval($_POST['task_id']);
-        $new_status = sanitize_text_field($_POST['status']);
+        $table_tasks = $wpdb->prefix . 'bugboard_tasks';
         
-        if (update_post_meta($task_id, '_bugboard_status', $new_status)) {
-            wp_send_json_success(array('message' => 'Estado actualizado correctamente'));
-        } else {
-            wp_send_json_error(array('message' => 'Error al actualizar el estado'));
-        }
-    }
-    
-    /**
-     * Crear o actualizar una tarea
-     */
-    public function save_task($task_data) {
-        $task_id = isset($task_data['task_id']) ? intval($task_data['task_id']) : 0;
+        $query = $wpdb->prepare("
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status IN ('por-hacer', 'en-progreso', 'en-revision') THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'en-progreso' THEN 1 ELSE 0 END) as in_progress,
+                SUM(CASE WHEN status = 'completado' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN priority = 'alta' THEN 1 ELSE 0 END) as urgent
+            FROM $table_tasks
+            WHERE assignee_id = %d
+        ", $user_id);
         
-        $post_data = array(
-            'post_title' => sanitize_text_field($task_data['task_title']),
-            'post_content' => wp_kses_post($task_data['task_description']),
-            'post_type' => 'bug',
-            'post_status' => 'publish'
+        $result = $wpdb->get_row($query, ARRAY_A);
+        
+        return array(
+            'total' => (int) $result['total'],
+            'pending' => (int) $result['pending'],
+            'in_progress' => (int) $result['in_progress'],
+            'completed' => (int) $result['completed'],
+            'urgent' => (int) $result['urgent']
         );
-        
-        if ($task_id > 0) {
-            $post_data['ID'] = $task_id;
-            $post_id = wp_update_post($post_data);
-        } else {
-            $post_id = wp_insert_post($post_data);
-        }
-        
-        if ($post_id) {
-            // Guardar metadatos
-            update_post_meta($post_id, '_bugboard_status', sanitize_text_field($task_data['task_status']));
-            update_post_meta($post_id, '_bugboard_priority', sanitize_text_field($task_data['task_priority']));
-            update_post_meta($post_id, '_bugboard_assignee', sanitize_text_field($task_data['task_assignee']));
+    }
+
+    /**
+     * Cargar scripts y estilos del admin
+     */
+    public function enqueue_admin_scripts($hook) {
+        // Solo cargar en páginas de BugBoard
+        if (strpos($hook, 'bugboard') !== false) {
+            wp_enqueue_style(
+                'bugboard-admin-style',
+                BUGBOARD_PLUGIN_URL . 'assets/css/admin.css',
+                array(),
+                BUGBOARD_VERSION
+            );
             
-            return $post_id;
+            // Cargar JavaScript solo en la página del tablero
+            if (strpos($hook, 'bugboard-tablero') !== false || $hook === 'bugboard_page_bugboard-tablero') {
+                wp_enqueue_script(
+                    'bugboard-tablero-js',
+                    BUGBOARD_PLUGIN_URL . 'assets/js/tablero.js',
+                    array('jquery'),
+                    BUGBOARD_VERSION,
+                    true
+                );
+                
+                // Localizar script con variables necesarias
+                wp_localize_script('bugboard-tablero-js', 'bugboardAjax', array(
+                    'ajaxurl' => admin_url('admin-ajax.php'),
+                    'nonce' => wp_create_nonce('bugboard_nonce')
+                ));
+            }
         }
-        
-        return false;
     }
 } 

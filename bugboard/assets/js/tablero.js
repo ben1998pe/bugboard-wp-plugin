@@ -7,6 +7,8 @@ jQuery(document).ready(function($) {
     // Variables globales
     var currentTask = null;
     var isDragging = false;
+    var bugboardAjaxUrl = bugboardAjax.ajaxurl;
+    var bugboardNonce = bugboardAjax.nonce;
     
     // Inicializar el tablero
     initTablero();
@@ -100,7 +102,10 @@ jQuery(document).ready(function($) {
     function setupDragAndDrop() {
         // Hacer las tareas arrastrables
         $(document).on('mousedown', '.bugboard-task', function(e) {
-            if (e.target.classList.contains('task-actions')) return;
+            // No activar drag si se hace clic en botones de acción
+            if ($(e.target).closest('.task-actions').length > 0) {
+                return;
+            }
             
             currentTask = $(this);
             isDragging = true;
@@ -152,14 +157,51 @@ jQuery(document).ready(function($) {
      * Manejar soltar el mouse
      */
     function handleMouseUp(e) {
-        if (!isDragging || !currentTask) return;
+        console.log('handleMouseUp llamado');
+        console.log('isDragging:', isDragging);
+        console.log('currentTask:', currentTask);
+        console.log('target:', e.target);
+        
+        if (!isDragging || !currentTask) {
+            console.log('No se procesa - no está arrastrando o no hay tarea actual');
+            return;
+        }
+        
+        // Verificar que no se hizo clic en un botón de acción
+        if ($(e.target).closest('.task-actions').length > 0) {
+            console.log('Clic en botón de acción - no procesar drop');
+            // Si se hizo clic en un botón de acción, no procesar el drop
+            $('.task-ghost').remove();
+            currentTask.removeClass('task-dragging');
+            currentTask = null;
+            isDragging = false;
+            
+            $(document).off('mousemove', handleMouseMove);
+            $(document).off('mouseup', handleMouseUp);
+            return;
+        }
         
         var targetColumn = $(e.target).closest('.bugboard-tasks');
+        console.log('targetColumn encontrado:', targetColumn.length > 0);
+        
         if (targetColumn.length > 0) {
             var newStatus = targetColumn.closest('.bugboard-column').data('status');
             var taskId = currentTask.data('task-id');
+            var oldStatus = currentTask.data('status');
             
-            updateTaskStatus(taskId, newStatus);
+            // Verificar si hay elementos duplicados antes de procesar
+            var allElementsWithId = $('.bugboard-task[data-task-id="' + taskId + '"]');
+            if (allElementsWithId.length > 1) {
+                console.log('¡ADVERTENCIA! Se encontraron elementos duplicados antes del drop. Limpiando...');
+                allElementsWithId.not(':first').remove();
+                currentTask = $('.bugboard-task[data-task-id="' + taskId + '"]').first();
+            }
+            
+            // Solo actualizar si el estado cambió
+            if (oldStatus !== newStatus) {
+                console.log('Llamando updateTaskStatus con:', { taskId: taskId, newStatus: newStatus });
+                updateTaskStatus(taskId, newStatus);
+            }
         }
         
         // Limpiar
@@ -224,6 +266,13 @@ jQuery(document).ready(function($) {
         // Limpiar todas las columnas
         $('.bugboard-tasks').empty();
         
+        // Verificar que no haya elementos duplicados antes de renderizar
+        var existingTasks = $('.bugboard-task');
+        if (existingTasks.length > 0) {
+            console.log('¡ADVERTENCIA! Se encontraron elementos de tarea antes de renderizar. Limpiando...');
+            existingTasks.remove();
+        }
+        
         // Agrupar tareas por estado
         var tasksByStatus = {};
         tasks.forEach(function(task) {
@@ -260,15 +309,22 @@ jQuery(document).ready(function($) {
      */
     function createTaskElement(task) {
         var priorityClass = 'priority-' + task.priority;
-        var assigneeName = task.assignee ? getUserName(task.assignee) : 'Sin asignar';
+        var assigneeName = task.assignee_name || 'Sin asignar';
+        
+        // Formatear fecha
+        var taskDate = '';
+        if (task.created_at) {
+            var date = new Date(task.created_at);
+            taskDate = date.toLocaleDateString('es-ES');
+        }
         
         var taskHtml = `
             <div class="bugboard-task ${priorityClass}" data-task-id="${task.id}" data-status="${task.status}">
                 <div class="task-header">
                     <h4 class="task-title">${task.title}</h4>
                     <div class="task-actions">
-                        <button class="edit-task-btn" onclick="editTask(${task.id})">✏️</button>
-                        <button class="delete-task-btn" onclick="deleteTask(${task.id})">🗑️</button>
+                        <button class="edit-task-btn" onclick="editTask(${task.id}); event.stopPropagation();">✏️</button>
+                        <button class="delete-task-btn" onclick="deleteTask(${task.id}); event.stopPropagation();">🗑️</button>
                     </div>
                 </div>
                 <div class="task-content">
@@ -277,7 +333,7 @@ jQuery(document).ready(function($) {
                 <div class="task-footer">
                     <span class="task-priority ${priorityClass}">${task.priority}</span>
                     <span class="task-assignee">👤 ${assigneeName}</span>
-                    <span class="task-date">📅 ${task.date}</span>
+                    <span class="task-date">📅 ${taskDate}</span>
                 </div>
             </div>
         `;
@@ -286,7 +342,7 @@ jQuery(document).ready(function($) {
     }
     
     /**
-     * Obtener nombre de usuario
+     * Obtener nombre de usuario (mantenido para compatibilidad)
      */
     function getUserName(userId) {
         if (!userId || userId === '') {
@@ -313,46 +369,60 @@ jQuery(document).ready(function($) {
         $('#task-description').val('');
         $('#task-priority').val('media');
         $('#task-assignee').val('');
+        $('#task-due-date').val('');
+        $('#task-estimated-hours').val('');
         $('#modal-title').text('Añadir Nueva Tarea');
         
-        $('#task-modal').show();
+        $('.bugboard-modal').show();
     }
     
     /**
      * Cerrar modal
      */
     function closeTaskModal() {
-        $('#task-modal').hide();
+        $('.bugboard-modal').hide();
     }
     
     /**
-     * Guardar tarea
+     * Guardar tarea (Optimizado)
      */
     function saveTask() {
         var formData = {
             task_id: $('#task-id').val(),
-            task_title: $('#task-title').val(),
-            task_description: $('#task-description').val(),
-            task_status: $('#task-status').val(),
-            task_priority: $('#task-priority').val(),
-            task_assignee: $('#task-assignee').val()
+            title: $('#task-title').val(),
+            description: $('#task-description').val(),
+            status: $('#task-status').val(),
+            priority: $('#task-priority').val(),
+            assignee: $('#task-assignee').val(),
+            due_date: $('#task-due-date').val(),
+            estimated_hours: $('#task-estimated-hours').val()
         };
         
         console.log('Guardando tarea:', formData);
+        
+        // Cerrar modal inmediatamente para mejor UX
+        closeTaskModal();
+        
+        var action = formData.task_id ? 'bugboard_update_task' : 'bugboard_create_task';
         
         $.ajax({
             url: bugboardAjaxUrl,
             type: 'POST',
             data: {
-                action: 'bugboard_save_task',
+                action: action,
                 nonce: bugboardNonce,
                 ...formData
             },
             success: function(response) {
                 console.log('Respuesta de guardar:', response);
                 if (response.success) {
-                    closeTaskModal();
-                    loadTasks();
+                    // Si es una tarea nueva, añadirla inmediatamente
+                    if (!formData.task_id) {
+                        addTaskToColumn(response.data.task.id, response.data.task);
+                    } else {
+                        // Si es edición, actualizar la tarea existente
+                        updateTaskInColumn(response.data.task.id, response.data.task);
+                    }
                     showNotification('Tarea guardada correctamente', 'success');
                 } else {
                     showNotification('Error al guardar la tarea: ' + (response.data ? response.data.message : 'Error desconocido'), 'error');
@@ -367,9 +437,53 @@ jQuery(document).ready(function($) {
     }
     
     /**
-     * Actualizar estado de tarea
+     * Actualizar estado de tarea (Optimizado)
      */
     function updateTaskStatus(taskId, newStatus) {
+        console.log('updateTaskStatus llamado con:', { taskId: taskId, newStatus: newStatus });
+        
+        // Actualización optimista - cambiar inmediatamente en la UI
+        var taskElement = $('.bugboard-task[data-task-id="' + taskId + '"]');
+        var oldStatus = taskElement.data('status');
+        
+        console.log('Elemento encontrado:', taskElement.length);
+        console.log('Estado anterior:', oldStatus);
+        console.log('Estado nuevo:', newStatus);
+        
+        // Si ya está en el estado correcto, no hacer nada
+        if (oldStatus === newStatus) {
+            console.log('Ya está en el estado correcto, no hacer nada');
+            return;
+        }
+        
+        // Verificar si hay elementos duplicados
+        var allElementsWithId = $('.bugboard-task[data-task-id="' + taskId + '"]');
+        console.log('Elementos con el mismo ID encontrados:', allElementsWithId.length);
+        
+        if (allElementsWithId.length > 1) {
+            console.log('¡ADVERTENCIA! Se encontraron elementos duplicados. Removiendo duplicados...');
+            // Mantener solo el primer elemento y remover los demás
+            allElementsWithId.not(':first').remove();
+            taskElement = $('.bugboard-task[data-task-id="' + taskId + '"]').first();
+        }
+        
+        // Mover la tarea visualmente inmediatamente
+        var targetColumn = $('.bugboard-column[data-status="' + newStatus + '"] .bugboard-tasks');
+        console.log('Columna objetivo encontrada:', targetColumn.length);
+        
+        // Mover el elemento original, no crear un clon
+        taskElement.addClass('task-moving');
+        targetColumn.append(taskElement);
+        
+        // Actualizar el estado del elemento
+        taskElement.data('status', newStatus);
+        
+        console.log('Tarea movida visualmente');
+        
+        // Actualizar contadores inmediatamente
+        updateColumnCounts();
+        
+        // Hacer la petición AJAX en background
         $.ajax({
             url: bugboardAjaxUrl,
             type: 'POST',
@@ -380,17 +494,94 @@ jQuery(document).ready(function($) {
                 status: newStatus
             },
             success: function(response) {
+                console.log('Respuesta de updateTaskStatus:', response);
                 if (response.success) {
-                    loadTasks();
+                    // Remover clase de animación
+                    taskElement.removeClass('task-moving');
                     showNotification('Estado actualizado correctamente', 'success');
                 } else {
+                    // Revertir cambios si falló
+                    taskElement.removeClass('task-moving');
+                    // Mover de vuelta a la columna original
+                    var originalColumn = $('.bugboard-column[data-status="' + oldStatus + '"] .bugboard-tasks');
+                    originalColumn.append(taskElement);
+                    taskElement.data('status', oldStatus);
+                    updateColumnCounts();
                     showNotification('Error al actualizar el estado', 'error');
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
+                console.error('Error en updateTaskStatus:', error);
+                // Revertir cambios si falló
+                taskElement.removeClass('task-moving');
+                // Mover de vuelta a la columna original
+                var originalColumn = $('.bugboard-column[data-status="' + oldStatus + '"] .bugboard-tasks');
+                originalColumn.append(taskElement);
+                taskElement.data('status', oldStatus);
+                updateColumnCounts();
                 showNotification('Error al actualizar el estado', 'error');
             }
         });
+    }
+    
+    /**
+     * Actualizar contadores de columnas
+     */
+    function updateColumnCounts() {
+        $('.bugboard-column').each(function() {
+            var column = $(this);
+            var status = column.data('status');
+            var taskCount = column.find('.bugboard-task').length;
+            var emptyMessage = column.find('.empty-column-message');
+            
+            column.find('.task-count').text(taskCount);
+            
+            // Mostrar/ocultar mensaje de columna vacía
+            if (taskCount === 0) {
+                emptyMessage.show();
+            } else {
+                emptyMessage.hide();
+            }
+            
+            console.log('Columna ' + status + ': ' + taskCount + ' tareas');
+        });
+    }
+    
+    /**
+     * Añadir tarea a una columna
+     */
+    function addTaskToColumn(taskId, taskData) {
+        var targetColumn = $('.bugboard-column[data-status="' + taskData.status + '"] .bugboard-tasks');
+        var taskElement = createTaskElement(taskData);
+        
+        taskElement.addClass('task-new');
+        targetColumn.append(taskElement);
+        updateColumnCounts();
+        
+        // Remover clase de animación después de un tiempo
+        setTimeout(function() {
+            taskElement.removeClass('task-new');
+        }, 2000);
+    }
+    
+    /**
+     * Actualizar tarea en una columna
+     */
+    function updateTaskInColumn(taskId, taskData) {
+        var taskElement = $('.bugboard-task[data-task-id="' + taskId + '"]');
+        if (taskElement.length > 0) {
+            // Actualizar contenido de la tarea
+            taskElement.find('.task-title').text(taskData.title);
+            taskElement.find('.task-description').text(taskData.description || 'Sin descripción');
+            taskElement.find('.task-priority').text(taskData.priority);
+            taskElement.find('.task-priority').removeClass().addClass('task-priority priority-' + taskData.priority);
+            
+            // Si cambió el estado, mover la tarea
+            var currentStatus = taskElement.data('status');
+            if (currentStatus !== taskData.status) {
+                updateTaskStatus(taskId, taskData.status);
+            }
+        }
     }
     
     /**
@@ -410,8 +601,6 @@ jQuery(document).ready(function($) {
     // Funciones globales para botones
     window.editTask = function(taskId) {
         console.log('Editando tarea:', taskId);
-        console.log('URL:', bugboardAjaxUrl);
-        console.log('Nonce:', bugboardNonce);
         
         var requestData = {
             action: 'bugboard_get_task',
@@ -438,13 +627,15 @@ jQuery(document).ready(function($) {
                     $('#task-description').val(task.description);
                     $('#task-status').val(task.status);
                     $('#task-priority').val(task.priority);
-                    $('#task-assignee').val(task.assignee);
+                    $('#task-assignee').val(task.assignee_id || '');
+                    $('#task-due-date').val(task.due_date || '');
+                    $('#task-estimated-hours').val(task.estimated_hours || '');
                     
                     // Cambiar título del modal
                     $('#modal-title').text('Editar Tarea');
                     
                     // Mostrar modal
-                    $('#task-modal').show();
+                    $('.bugboard-modal').show();
                     
                     console.log('Modal llenado y mostrado');
                 } else {
@@ -454,9 +645,6 @@ jQuery(document).ready(function($) {
             },
             error: function(xhr, status, error) {
                 console.error('Error AJAX al cargar tarea:', error);
-                console.error('Status:', status);
-                console.error('XHR:', xhr);
-                console.error('Response Text:', xhr.responseText);
                 showNotification('Error al cargar la tarea: ' + error, 'error');
             }
         });
@@ -465,6 +653,10 @@ jQuery(document).ready(function($) {
     window.deleteTask = function(taskId) {
         if (confirm('¿Estás seguro de que quieres eliminar esta tarea?')) {
             console.log('Eliminando tarea:', taskId);
+            
+            // Eliminación optimista - quitar inmediatamente de la UI
+            var taskElement = $('.bugboard-task[data-task-id="' + taskId + '"]');
+            taskElement.addClass('task-deleting');
             
             $.ajax({
                 url: bugboardAjaxUrl,
@@ -476,18 +668,27 @@ jQuery(document).ready(function($) {
                 },
                 success: function(response) {
                     if (response.success) {
+                        taskElement.fadeOut(300, function() {
+                            $(this).remove();
+                            updateColumnCounts();
+                        });
                         showNotification('Tarea eliminada correctamente', 'success');
-                        loadTasks(); // Recargar tareas
                     } else {
+                        taskElement.removeClass('task-deleting');
                         showNotification('Error al eliminar la tarea', 'error');
                     }
                 },
                 error: function(xhr, status, error) {
                     console.error('Error al eliminar tarea:', error);
+                    taskElement.removeClass('task-deleting');
                     showNotification('Error al eliminar la tarea', 'error');
                 }
             });
         }
+    };
+    
+    window.openTaskModal = function(status) {
+        openTaskModal(status);
     };
     
     window.closeTaskModal = function() {
